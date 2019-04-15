@@ -28,7 +28,7 @@ warnings.filterwarnings("ignore")
 # In[ ]:
 
 
-device_ids = [0,1,2,3]
+device_ids = [0,1,2,3, 4, 5, 6]
 
 
 # In[ ]:
@@ -211,7 +211,7 @@ device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 model = Keypoint_model()
 model.to(device)
 model = torch.nn.DataParallel(model, device_ids=device_ids)
-torch.cuda.set_device(hp['device_ids'][0])
+torch.cuda.set_device(0)
 
 
 # In[ ]:
@@ -269,32 +269,32 @@ def train(n_epochs, train_loader, val_loader):
         total_train_loss = 0
         
         for batch_i, data in enumerate(train_loader):
-            if batch_i > 2:
-                break
+            #if batch_i > 2:
+             #   break
             optimizer.zero_grad()
-            images = data['image']
-            keypts = data['keypoints']
+            images = data['image'].to(device)
+            keypts = data['keypoints'].to(device)
             keypts = keypts.view(keypts.size(0), -1)
-            images, keypts = Variable(images).type(torch.FloatTensor), Variable(keypts).type(torch.FloatTensor)
+            images, keypts = Variable(images).type(torch.cuda.FloatTensor), Variable(keypts).type(torch.cuda.FloatTensor)
             output_pts = model(images)
             loss = criterion(output_pts, keypts)
             loss.backward()
             optimizer.step()
-            total_train_loss += loss.data[0] 
+            total_train_loss += loss.item() 
         avg_train_loss = total_train_loss / len(train_loader)
         train_losses.append(avg_train_loss)
         print('Epoch: {}, Avg. Loss: {}'.format(epoch + 1, avg_train_loss))
         total_val_loss = 0
         for batch_i, data in enumerate(val_loader):
-            if batch_i > 2:
-                break
-            images = data['image']
-            keypts = data['keypoints']
+            #if batch_i > 2:
+            #    break
+            images = data['image'].to(device)
+            keypts = data['keypoints'].to(device)
             keypts = keypts.view(keypts.size(0), -1)
-            images, keypts = Variable(images).type(torch.FloatTensor), Variable(keypts).type(torch.FloatTensor)
+            images, keypts = Variable(images).type(torch.cuda.FloatTensor), Variable(keypts).type(torch.cuda.FloatTensor)
             output_pts = model(images)
             loss = criterion(output_pts, keypts)
-            total_val_loss += loss.data[0]
+            total_val_loss += loss.item()
         avg_val_loss = total_val_loss / len(val_loader)
         val_losses.append(avg_val_loss)
         if avg_val_loss < best_val_loss:
