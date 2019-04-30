@@ -28,14 +28,14 @@ warnings.filterwarnings("ignore")
 # In[ ]:
 
 
-device_ids = [0,1,2,3, 4, 5, 6]
+device_ids = [0, 1, 2, 3, 4, 5, 6]
 
 
 # In[ ]:
 
 
 def rgb2gray(rgb):
-    return np.dot(rgb[...,:3], [0.2989, 0.5870, 0.1140])
+    return np.dot(rgb[..., :3], [0.2989, 0.5870, 0.1140])
 
 
 # In[ ]:
@@ -43,9 +43,9 @@ def rgb2gray(rgb):
 
 class Parameters:
     def __init__(self):
-        self.image_dir = "/home/ubuntu/face_filters/face_filters/WFLW_images/"
-        self.train_annotations = "/home/ubuntu/face_filters/face_filters/WFLW_annotations/list_98pt_rect_attr_train_test/list_98pt_rect_attr_train.txt"
-        self.test_annotations = "/home/ubuntu/face_filters/face_filters/WFLW_annotations/list_98pt_rect_attr_train_test/list_98pt_rect_attr_test.txt"
+        self.image_dir = "../WFLW_images/"
+        self.train_annotations = "../WFLW_annotations/list_98pt_rect_attr_train_test/list_98pt_rect_attr_train.txt"
+        self.test_annotations = "../WFLW_annotations/list_98pt_rect_attr_train_test/list_98pt_rect_attr_test.txt"
         self.data_transform = transforms.Compose([Rescale(256), RandomCrop(224), ToTensor()])
 
 
@@ -54,30 +54,30 @@ class Parameters:
 
 def show_landmarks(image, landmarks):
     plt.imshow(image)
-    plt.scatter(landmarks[:, 0], landmarks[:, 1], s = 10, market = '.', c = 'g')
+    plt.scatter(landmarks[:, 0], landmarks[:, 1], s=10, market='.', c='g')
 
 
 # In[ ]:
 
 
 class keypoint_dataset(Dataset):
-    def __init__(self, opt, typ = 'Train'):
+    def __init__(self, opt, typ='Train'):
         if typ is 'Train':
             self.keypoints = pd.read_csv(opt.train_annotations, sep=" ")
         else:
-            self.keypoints = pd.read_csv(opt.test_annotations, sep = " ")
+            self.keypoints = pd.read_csv(opt.test_annotations, sep=" ")
         self.opt = opt
-        
+
     def __len__(self):
         return len(self.keypoints)
-    
+
     def __getitem__(self, idx):
         image_name = self.keypoints.iloc[idx, -1]
         image_path = os.path.join(self.opt.image_dir, image_name)
         image = rgb2gray(io.imread(image_path))
         keypoints = self.keypoints.iloc[idx, :196].as_matrix()
         keypoints = keypoints.astype('float').reshape(-1, 2)
-        sample = {'image':image, 'keypoints':keypoints}
+        sample = {'image': image, 'keypoints': keypoints}
         if self.opt.data_transform is not None:
             sample = self.opt.data_transform(sample)
         return sample
@@ -121,6 +121,7 @@ class Rescale(object):
 
         return {'image': img, 'keypoints': landmarks}
 
+
 class RandomCrop(object):
     """Crop randomly the image in a sample.
 
@@ -152,7 +153,8 @@ class RandomCrop(object):
         landmarks = landmarks - [left, top]
 
         return {'image': image, 'keypoints': landmarks}
-    
+
+
 class ToTensor(object):
     """Convert ndarrays in sample to Tensors."""
 
@@ -187,11 +189,11 @@ class Keypoint_model(nn.Module):
         self.dropout = nn.Dropout(0.3)
 
     def forward(self, x):
-        x = self.pool(F.relu(self.conv1(x))) # 112
-        x = self.pool(F.relu(self.conv2(x))) # 56
-        x = self.pool(F.relu(self.conv3(x))) # 28
-        x = self.pool(F.relu(self.conv4(x))) # 14
-        x = self.pool(F.relu(self.conv5(x))) # 7
+        x = self.pool(F.relu(self.conv1(x)))  # 112
+        x = self.pool(F.relu(self.conv2(x)))  # 56
+        x = self.pool(F.relu(self.conv3(x)))  # 28
+        x = self.pool(F.relu(self.conv4(x)))  # 14
+        x = self.pool(F.relu(self.conv5(x)))  # 7
 
         x = x.view(-1, 256 * 7 * 7)
 
@@ -225,8 +227,8 @@ test_dataset = keypoint_dataset(parameters)
 # In[ ]:
 
 
-train_dataloader = DataLoader(dataset=train_dataset, batch_size=128,num_workers=32,shuffle=True)
-test_dataloader = DataLoader(dataset=test_dataset, batch_size=128,num_workers=32,shuffle=True)
+train_dataloader = DataLoader(dataset=train_dataset, batch_size=5, num_workers=0, shuffle=True)
+test_dataloader = DataLoader(dataset=test_dataset, batch_size=5, num_workers=0, shuffle=True)
 
 
 # In[ ]:
@@ -251,68 +253,81 @@ def early_stopping(val_losses, epoch_threshold=10):
 model_dir = 'saved_models/'
 model_name = 'my_best_model.pt'
 criterion = nn.MSELoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.1)
+initial_lr = 0.00001
+optimizer = torch.optim.Adam(model.parameters(), lr=initial_lr)
+
+
+def sqrt_lr_scheduler(optimizer, epoch, init_lr=initial_lr, steps=50):
+    # Decay learning rate by square root of the epoch #
+    if (epoch % steps) == 0:
+        lr = init_lr / np.sqrt(epoch + 1)
+        print('Adjusted learning rate: {:.6f}'.format(lr))
+
+        for param_group in optimizer.param_groups:
+            param_group['lr'] = lr
+
+    return optimizer
 
 
 # In[ ]:
 
 
-def train(n_epochs, train_loader, val_loader):
+def train(n_epochs, train_loader, val_loader, optimizer):
     model.train()
     train_losses, val_losses = [], []
     best_val_loss = float("INF")
-     
+
     for epoch in range(n_epochs):
-        print ("Epoch {}/{}".format(epoch + 1, n_epochs))
+        print("Epoch {}/{}".format(epoch + 1, n_epochs))
         running_loss = 0.0
         start_time = time.time()
         total_train_loss = 0
-        #print("Started training")    
+        optimizer = sqrt_lr_scheduler(optimizer, epoch, initial_lr)
         for batch_i, data in enumerate(train_loader):
-            #if batch_i > 2:
+            # if batch_i > 2:
              #   break
-            #print("Loaded data")
-            #optimizer.zero_grad()
+
             images = data['image'].to(device)
             keypts = data['keypoints'].to(device)
             keypts = keypts.view(keypts.size(0), -1)
-            images, keypts = Variable(images).type(torch.cuda.FloatTensor), Variable(keypts).type(torch.cuda.FloatTensor)
-            output_pts = model(images)
+            images, keypts = Variable(images).type(torch.cuda.FloatTensor), Variable(
+                keypts).type(torch.cuda.FloatTensor)
             optimizer.zero_grad()
+            output_pts = model(images)
             loss = criterion(output_pts, keypts)
+            total_train_loss += loss.item()
             loss.backward()
             optimizer.step()
-            total_train_loss += loss.item() 
         avg_train_loss = total_train_loss / len(train_loader)
         train_losses.append(avg_train_loss)
         print('Epoch: {}, Avg. Loss: {}'.format(epoch + 1, avg_train_loss))
         total_val_loss = 0
-        if (epoch+1)%10 == 0:
-            for batch_i, data in enumerate(val_loader):
-                #if batch_i > 2:
-                #    break
-                images = data['image'].to(device)
-                keypts = data['keypoints'].to(device)
-                keypts = keypts.view(keypts.size(0), -1)
-                images, keypts = Variable(images).type(torch.cuda.FloatTensor), Variable(keypts).type(torch.cuda.FloatTensor)
-                output_pts = model(images)
-                loss = criterion(output_pts, keypts)
-                total_val_loss += loss.item()
-            avg_val_loss = total_val_loss / len(val_loader)
-            val_losses.append(avg_val_loss)
-            if avg_val_loss < best_val_loss:
-                torch.save(model.state_dict(), model_dir + model_name)
-                print ("val_loss improved from {} to {}, saving model to {}".format(best_val_loss, 
-                                                                                    avg_val_loss, 
-                                                                                    model_name))
-                best_val_loss = avg_val_loss
-            else:
-                print ("val_loss did not improve")
-                print ("took {:.2f}s; loss = {:.2f}; val_loss = {:.2f}".format(time.time() - start_time, 
-                                                                           avg_train_loss, avg_val_loss))
+        for batch_i, data in enumerate(val_loader):
+            # if batch_i > 2:
+            #    break
+            images = data['image'].to(device)
+            keypts = data['keypoints'].to(device)
+            keypts = keypts.view(keypts.size(0), -1)
+            images, keypts = Variable(images).type(torch.cuda.FloatTensor), Variable(
+                keypts).type(torch.cuda.FloatTensor)
+            output_pts = model(images)
+            loss = criterion(output_pts, keypts)
+            total_val_loss += loss.item()
+        avg_val_loss = total_val_loss / len(val_loader)
+        val_losses.append(avg_val_loss)
+        if avg_val_loss < best_val_loss:
+            torch.save(model.state_dict(), model_dir + model_name)
+            print("val_loss improved from {} to {}, saving model to {}".format(best_val_loss,
+                                                                               avg_val_loss,
+                                                                               model_name))
+            best_val_loss = avg_val_loss
+        else:
+            print("val_loss did not improve")
+            print("took {:.2f}s; loss = {:.2f}; val_loss = {:.2f}".format(time.time() - start_time,
+                                                                          avg_train_loss, avg_val_loss))
         if epoch > 100:
             if early_stopping(val_losses, 10):
-                break   
+                break
     print('Finished Training')
     return train_losses, val_losses
 
@@ -320,5 +335,4 @@ def train(n_epochs, train_loader, val_loader):
 # In[ ]:
 
 
-train(1000, train_dataloader, test_dataloader)
-
+train(500, train_dataloader, test_dataloader, optimizer)
