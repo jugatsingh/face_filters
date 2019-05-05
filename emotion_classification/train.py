@@ -89,5 +89,5 @@ for epoch in range(num_epochs):
 			print('Total Time Elapsed: ', time.strftime("%H:%M:%S", time.gmtime(time.time() - start_time)))
 			if test_acc > best_test_acc:
 				best_test_acc = test_acc
-				torch.save(model.state_dict(), model_dir + model_name)
+				torch.save(net.state_dict(), model_dir + model_name)
 				print('Saving ' + model_dir + model_name)
