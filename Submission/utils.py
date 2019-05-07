@@ -4,13 +4,6 @@ import torch
 import os
 import matplotlib.pyplot as plt
 import imutils
-from os import listdir
-from os.path import isfile, join
-
-from keypoint_model import keypoint_model
-from resnet import resnet
-
-#fasterRCNN = resnet(1, 50, pretrained=True, class_agnostic=args.class_agnostic)
 
 
 def get_image(data_dir, file_name):
@@ -165,3 +158,53 @@ def apply_mustache_filter(img, filt, part_filter, off_x, off_y, off_y_image,
     filt = cv2.resize(filt, (0, 0), fx=factor, fy=factor)
     img = overlay_filter_on_image(img, filt, xpos, int(ypos))
     return img
+
+
+def apply_flag_filter(frame, flag, keypts, face_loc):
+    keypts = keypts[0]
+    flag_height = int(abs(keypts[28][1] - keypts[30][1]))
+    flag_width = int(abs(keypts[48][0] - keypts[54][0])/2)
+    h, w, _ = flag.shape
+    r = flag_height / float(h)
+    dim = (int(w * r), flag_height)
+    scaled_flag = cv2.resize(flag, dim, interpolation=cv2.INTER_AREA)
+    eyebrow_height_diff = abs(keypts[17][1] - keypts[26][1])
+    eyebrow_width = abs(keypts[17][0] - keypts[26][0])
+    eyebrow_angle = np.arctan(eyebrow_height_diff/eyebrow_width)*(180/np.pi)
+    eyebrow_angle = eyebrow_angle if keypts[17][1] < keypts[26][1] else -eyebrow_angle
+    new_flag = imutils.rotate_bound(scaled_flag, eyebrow_angle)
+    b = (np.copy(new_flag))[:, :, :3]/255
+    flag_x = int(keypts[35][0] + abs(keypts[33][0] - keypts[35][0])*5/2)
+    flag_y = int((keypts[33][0] + keypts[30][0])/2)
+    a = images[0][flag_y: flag_y + dim[1], flag_x: min(flag_x + dim[0], frame.shape[1])]
+    a_copy = np.copy(a)
+    a = a/255
+    a = np.where(a < 0.5, 2*a*b, 1 - 2*(1-a)*(1-b)) * 255
+    a = np.where(np.expand_dims(new_flag[:, :, 3], axis=2) < 5, a_copy, a)
+    images[0][flag_y: flag_y + dim[1], flag_x: min(flag_x + dim[0], frame.shape[1])] = a
+    frame[face_loc[1]:face_loc[1] + face_loc[3], face_loc[0]: face_loc[0] + face_loc[2]
+          ] = cv2.resize(images[0], (face_loc[2], face_loc[3]), interpolation=cv2.INTER_AREA)
+    return frame
+
+
+def get_eyes_filter():
+    return cv2.CascadeClassifier('./models/eye.xml')
+
+
+def get_emotion_predictor(model_path):
+    net = emotion_model.Net().float().to(device)
+    pretrained_model = torch.load(model_path, map_location='cpu')
+    net.load_state_dict(pretrained_model)
+    net.eval()
+    return net
+
+
+def emotion_predictor(emotion_classifier, image):
+    image = convert_image_to_bw(image)
+#     image = cv2.resize(image, (48, 48)).reshape((1, 1, 48, 48))
+    image = cv2.resize(image, (48, 48)).reshape((1, 48, 48, 1)).astype("float")/255.0
+#     X = torch.from_numpy(image).float().to(device)
+    preds = emotion_classifier.predict(image)[0]
+    emotion_probability = np.max(preds)
+    return preds.argmax()
+    return np.argmax(net(X).data.cpu().numpy(), axis=1)[0]
